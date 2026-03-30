@@ -54,7 +54,7 @@ User Query ──→ Embed ──→ FAISS Retrieval ──→ OpenAI Chat Compl
 ## 📁 Project Structure
 
 ```
-march2026/
+multimodal-rag-real-estate-assistant/
 ├── main.py               # FastAPI app entrypoint
 ├── data_ingestion.py     # PDF loading, chunking, embeddings, FAISS index, image map
 ├── rag_functions.py      # Retrieval, response generation, citations, image selection
@@ -71,8 +71,8 @@ march2026/
 
 1. Clone the repo and navigate to the project:
    ```bash
-   git clone <repo-url>
-   cd march2026
+   git clone https://github.com/IshaanLabs/multimodal-rag-real-estate-assistant
+   cd multimodal-rag-real-estate-assistant
    ```
 
 2. Create a virtual environment and install dependencies:
@@ -81,7 +81,7 @@ march2026/
    source venv/bin/activate        # Linux/macOS
    venv\Scripts\activate           # Windows
    pip install -r requirements.txt
-   pip install streamlit streamlit-chat
+   
    ```
 
 3. Set up environment:
@@ -118,18 +118,26 @@ march2026/
 |------|-------------|------|
 | FastAPI | API server and `/chat` endpoint | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) |
 | Streamlit | Frontend UI framework | [streamlit.io](https://streamlit.io/) |
-| streamlit-chat | Chat bubble component for Streamlit | [GitHub](https://github.com/AI-Yash/st-chat) |
 | OpenAI API | Embeddings (`text-embedding-ada-002`) and chat | [platform.openai.com](https://platform.openai.com/) |
 | FAISS | Vector similarity search index | [GitHub](https://github.com/facebookresearch/faiss) |
 | numpy | Array operations for embeddings | [numpy.org](https://numpy.org/) |
 | requests | HTTP calls to OpenAI and backend | [PyPI](https://pypi.org/project/requests/) |
 
+## ⚠️ Data Disclaimer
+
+The data used in this project (including PDFs, floorplans, and images related to Al Badia Villas, Dubai) is strictly for **demonstration and educational purposes only**.
+
+All rights, ownership, and intellectual property of these materials belong to their respective owners. I do not claim any ownership or rights over this data.
+
+This project does not intend to use, distribute, or commercialize any proprietary or copyrighted content.
+
 ## 🤝 Contributing
 
-- Fork the repo, create a feature branch, and submit a PR.
-- Add tests where relevant (e.g., chunking, retrieval, lead signals).
-- Keep configuration out of source control (use `.env` / `.streamlit/secrets.toml`).
+Contributions to this project are welcome! If you have ideas for improvements, bug fixes, or new features, feel free to open an issue or submit a pull request.
+
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the MIT License - see the [MIT License](LICENSE) file for details.
+
+
