@@ -223,10 +223,10 @@ def initialize_data_pipeline():
     print("✅ Data pipeline initialized successfully!")
     return pipeline_data
 
-if __name__ == "__main__":
-    print("🚀 Testing data ingestion pipeline...")
-    result = initialize_data_pipeline()
-    if result:
-        print("🎉 Pipeline test completed successfully!")
-    else:
-        print("💥 Pipeline test failed!")
+# if __name__ == "__main__":
+#     print("🚀 Testing data ingestion pipeline...")
+#     result = initialize_data_pipeline()
+#     if result:
+#         print("🎉 Pipeline test completed successfully!")
+#     else:
+#         print("💥 Pipeline test failed!")
