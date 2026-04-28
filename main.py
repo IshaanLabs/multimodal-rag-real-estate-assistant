@@ -1,232 +1,154 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
 import os
-import pymupdf4llm
-import faiss
-import numpy as np
-import requests
-import json
 from dotenv import load_dotenv
-import re
 
+# Import our custom functions
+from data_ingestion import initialize_data_pipeline
+from rag_functions import process_rag_query
+from lead_functions import analyze_lead_potential
+
+# Load environment variables
 load_dotenv()
+print("🚀 Loading environment variables...")
 
-def load_pdf_with_pymupdf(pdf_path):
-    """Load and extract text from PDF using pymupdf4llm"""
-    print(f"📄 Loading PDF from: {pdf_path}")
+app = FastAPI(title="Real Estate RAG Chatbot", version="1.0.0")
+
+# Global variable to store pipeline data
+pipeline_data = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize data pipeline on startup"""
+    global pipeline_data
+    print("🏗️ Initializing RAG pipeline on startup...")
+    pipeline_data = initialize_data_pipeline()
+    if pipeline_data:
+        print("✅ RAG pipeline initialized successfully!")
+    else:
+        print("❌ Failed to initialize RAG pipeline!")
+
+# Request/Response models
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str
+    context: Optional[Dict[str, Any]] = {}
+
+class ImageResponse(BaseModel):
+    path: str
+    description: str
+    relevance: str
+
+class LeadSignals(BaseModel):
+    intent: str
+    signals_detected: List[str]
+    recommended_action: str
+
+class ChatResponse(BaseModel):
+    response: str
+    properties_mentioned: List[str]
+    citations: List[Dict[str, Any]]
+    images: List[ImageResponse]
+    lead_signals: LeadSignals
+    follow_up_prompt: str
+
+@app.get("/")
+def read_root():
+    print("📍 Root endpoint accessed")
+    return {"message": "Real Estate RAG Chatbot API", "status": "running"}
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_endpoint(request: ChatRequest):
+    print(f"💬 Chat request received: {request.message[:50]}...")
+    print(f"🔑 Session ID: {request.session_id}")
     
-    if not os.path.exists(pdf_path):
-        print(f"❌ PDF file not found: {pdf_path}")
-        return None
+    if not pipeline_data:
+        print("❌ Pipeline not initialized")
+        return ChatResponse(
+            response="I'm sorry, the system is still initializing. Please try again in a moment.",
+            properties_mentioned=[],
+            citations=[],
+            images=[],
+            lead_signals=LeadSignals(
+                intent="low",
+                signals_detected=[],
+                recommended_action="wait"
+            ),
+            follow_up_prompt="Please try again shortly."
+        )
     
     try:
-        print("🔄 Converting PDF with pymupdf4llm...")
-        text_content = pymupdf4llm.to_markdown(pdf_path)
+        # Process RAG query
+        rag_result = process_rag_query(request.message, pipeline_data)
         
-        print(f"✅ PDF loaded successfully. Content length: {len(text_content)} characters")
-        return text_content
+        # Analyze lead potential
+        lead_analysis = analyze_lead_potential(request.message, request.context)
         
-    except Exception as e:
-        print(f"❌ Error loading PDF: {str(e)}")
-        return None
-
-def chunk_text(text_content, chunk_size=800, chunk_overlap=100):
-    """Split text into chunks optimized for villa specifications"""
-    print(f"✂️ Chunking text with size: {chunk_size}, overlap: {chunk_overlap}")
-    
-    # Clean and preprocess text
-    cleaned_text = text_content.replace('\n\n', '\n').replace('\t', ' ')
-    
-    # Split by sections first (villa types, specifications)
-    sections = []
-    
-    # Look for villa type sections (MIA, SHADEA, MODEA)
-    villa_keywords = ['MIA', 'SHADEA', 'MODEA', 'bedroom', 'villa', 'specifications', 'dimensions', 'area']
-    
-    # Split into paragraphs first
-    paragraphs = cleaned_text.split('\n')
-    current_section = ""
-    
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-            
-        # Check if paragraph contains villa-specific info
-        if any(keyword.lower() in para.lower() for keyword in villa_keywords):
-            if current_section and len(current_section) > 100:
-                sections.append(current_section.strip())
-                current_section = para
-            else:
-                current_section += " " + para
-        else:
-            current_section += " " + para
+        # Extract properties mentioned - improved detection
+        properties_mentioned = []
+        message_lower = request.message.lower()
+        response_lower = rag_result["response"].lower()
         
-        # If section gets too long, split it
-        if len(current_section) > chunk_size:
-            sections.append(current_section.strip())
-            current_section = ""
-    
-    # Add remaining section
-    if current_section.strip():
-        sections.append(current_section.strip())
-    
-    # If no good sections found, fall back to simple chunking
-    if not sections or len(sections) < 3:
-        print("⚠️ Falling back to simple chunking")
-        chunks = []
-        start = 0
-        while start < len(cleaned_text):
-            end = start + chunk_size
-            chunk = cleaned_text[start:end]
-            chunks.append(chunk)
-            start = end - chunk_overlap
-            if start >= len(cleaned_text):
-                break
-        sections = chunks
-    
-    print(f"✅ Created {len(sections)} optimized chunks")
-    return sections
-
-def create_embeddings(chunks):
-    """Create embeddings for text chunks using OpenAI text-embedding-ada-002"""
-    print("🧠 Creating embeddings with OpenAI text-embedding-ada-002...")
-    
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("❌ No OpenAI API key found")
-        return None, None
-    
-    try:
-        embeddings = []
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+        # Check both message and response for property mentions
+        combined_text = message_lower + " " + response_lower
         
-        for i, chunk in enumerate(chunks):
-            print(f"  📄 Processing chunk {i+1}/{len(chunks)}")
-            
-            data = {
-                "model": "text-embedding-ada-002",
-                "input": chunk.replace("\n", " ").strip()
-            }
-            
-            response = requests.post(
-                "https://api.openai.com/v1/embeddings",
-                headers=headers,
-                json=data,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                embeddings.append(result["data"][0]["embedding"])
-            else:
-                print(f"❌ API Error: {response.status_code} - {response.text}")
-                return None, None
+        if any(word in combined_text for word in ["shadea", "4br", "4 bedroom", "four bedroom", "4-bedroom"]):
+            properties_mentioned.append("SHADEA-4BR")
+        if any(word in combined_text for word in ["mia", "3br", "3 bedroom", "three bedroom", "3-bedroom"]):
+            properties_mentioned.append("MIA-3BR")
+        if any(word in combined_text for word in ["modea", "5br", "5 bedroom", "five bedroom", "5-bedroom"]):
+            properties_mentioned.append("MODEA-5BR")
         
-        print(f"✅ Created embeddings for {len(embeddings)} chunks")
-        return embeddings, {"api_key": api_key, "headers": headers}
+        # Convert images to response format
+        images = []
+        for img in rag_result["relevant_images"]:
+            images.append(ImageResponse(
+                path=img["path"],
+                description=img["description"],
+                relevance=img["relevance"]
+            ))
+        
+        response = ChatResponse(
+            response=rag_result["response"],
+            properties_mentioned=properties_mentioned,
+            citations=rag_result["citations"],
+            images=images,
+            lead_signals=LeadSignals(
+                intent=lead_analysis["intent"],
+                signals_detected=lead_analysis["signals_detected"],
+                recommended_action=lead_analysis["recommended_action"]
+            ),
+            follow_up_prompt=lead_analysis["follow_up_prompt"]
+        )
+        
+        print("✅ Response generated successfully")
+        return response
         
     except Exception as e:
-        print(f"❌ Error creating embeddings: {str(e)}")
-        return None, None
+        print(f"❌ Error processing chat request: {str(e)}")
+        return ChatResponse(
+            response="I apologize, but I encountered an error processing your request. Please try again.",
+            properties_mentioned=[],
+            citations=[],
+            images=[],
+            lead_signals=LeadSignals(
+                intent="low",
+                signals_detected=[],
+                recommended_action="retry"
+            ),
+            follow_up_prompt="How else can I help you with Al Badia Villas?"
+        )
 
-def create_faiss_index(embeddings):
-    """Create FAISS vector index"""
-    print("🗂️ Creating FAISS vector index...")
-    
-    if not embeddings:
-        print("❌ No embeddings provided")
-        return None
-    
-    # Convert to numpy array
-    embeddings_array = np.array(embeddings).astype('float32')
-    dimension = embeddings_array.shape[1]
-    
-    print(f"📊 Embedding dimension: {dimension}")
-    
-    # Create FAISS index
-    index = faiss.IndexFlatL2(dimension)
-    index.add(embeddings_array)
-    
-    print(f"✅ FAISS index created with {index.ntotal} vectors")
-    return index
-
-def map_images_to_villas():
-    """Create mapping between villa types and floorplan images"""
-    print("🖼️ Creating image-to-villa mapping...")
-    
-    image_dir = "data/WebP"
-    image_mapping = {}
-    
-    # Villa type patterns based on the requirements
-    villa_patterns = {
-        "3BR": ["MIA", "Type A", "Type B"],
-        "4BR": ["SHADEA", "Type A", "Type B"], 
-        "5BR": ["MODEA", "Type A", "Type B"]
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "pipeline_initialized": pipeline_data is not None
     }
-    
-    if os.path.exists(image_dir):
-        for filename in os.listdir(image_dir):
-            if filename.startswith("AlBadia_Floorplans_A3_Rev11") and filename.endswith(".webp"):
-                print(f"📸 Found image: {filename}")
-                
-                # Extract page number from filename (e.g., Rev11-7.webp -> page 7)
-                page_num = filename.split("-")[-1].split(".")[0]
-                image_path = os.path.join(image_dir, filename)
-                
-                image_mapping[page_num] = {
-                    "path": image_path,
-                    "filename": filename,
-                    "villa_type": f"Page_{page_num}"  # Will be refined based on PDF content
-                }
-    
-    print(f"✅ Created mapping for {len(image_mapping)} images")
-    return image_mapping
 
-def initialize_data_pipeline():
-    """Initialize the complete data ingestion pipeline"""
-    print("🏗️ Initializing data ingestion pipeline...")
-    
-    # Load PDF
-    pdf_path = "data/ABV Final Floorplans.pdf"
-    text_content = load_pdf_with_pymupdf(pdf_path)
-    
-    if not text_content:
-        print("❌ Failed to load PDF content")
-        return None
-    
-    # Create chunks
-    chunks = chunk_text(text_content)
-    
-    # Create embeddings
-    embeddings, openai_config = create_embeddings(chunks)
-    
-    if not embeddings:
-        print("❌ Failed to create embeddings")
-        return None
-    
-    # Create FAISS index
-    faiss_index = create_faiss_index(embeddings)
-    
-    # Create image mapping
-    image_mapping = map_images_to_villas()
-    
-    pipeline_data = {
-        "chunks": chunks,
-        "openai_config": openai_config,
-        "faiss_index": faiss_index,
-        "image_mapping": image_mapping,
-        "text_content": text_content
-    }
-    
-    print("✅ Data pipeline initialized successfully!")
-    return pipeline_data
-
-# if __name__ == "__main__":
-#     print("🚀 Testing data ingestion pipeline...")
-#     result = initialize_data_pipeline()
-#     if result:
-#         print("🎉 Pipeline test completed successfully!")
-#     else:
-#         print("💥 Pipeline test failed!")
+if __name__ == "__main__":
+    import uvicorn
+    print("🏠 Starting Real Estate RAG Chatbot...")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
