@@ -1,3 +1,4 @@
+
 # AI Real Estate Assistant (RAG) | Streamlit + FastAPI Chatbot with Image Retrieval & Lead Intelligence
 
 A Retrieval-Augmented Generation (RAG) chatbot that answers property queries using PDFs, returns floorplan images, and detects buyer intent for smarter real estate engagement.
